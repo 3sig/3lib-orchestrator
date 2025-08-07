@@ -1,0 +1,37 @@
+{
+  devDependenciesLocation: "orchestrator-deps",
+  processes: [
+    {
+      name: "httpServer",
+      source: "3sig/3suite-http-server",
+      sourceActions: [{ type: "chmod" }],
+      config: {port: 4004, directory: "node_modules"},
+    },
+    {
+      name: "browser",
+      source: "3sig/3suite-browser",
+      sourceActions: [
+        {
+          type: "unzip"
+        },
+        //{
+        //  type: "chmod",
+        //  file: "3suite-browser.app/Contents/MacOS/3suite-browser"
+        //}
+      ],
+      sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
+      loadConfig: "browser",
+    },
+  ],
+
+  configs: {
+    browser: {
+      url: "http://localhost:4004/3lib-config/main.js",
+      fullscreen: false,
+      disableCursor: false,
+
+      windowWidth: 800,
+      windowHeight: 600,
+    }
+  }
+}

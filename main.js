@@ -1,0 +1,176 @@
+import config from "3lib-config";
+import * as fleece from "golden-fleece";
+import * as Octokit from "octokit";
+import * as fs from "fs";
+const { spawn } = require('child_process');
+import { Readable } from "stream";
+
+// Using spawn (better for large files, real-time output)
+function unzipWithSpawn(zipPath, outputDir) {
+  return new Promise((resolve, reject) => {
+    const process = spawn('unzip', ['-o', zipPath, '-d', outputDir]);
+
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log(`stdout: ${data}`);
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.log(`stderr: ${data}`);
+    });
+
+    process.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`Unzip process exited with code ${code}: ${stderr}`));
+      }
+    });
+
+    process.on('error', (err) => {
+      reject(new Error(`Failed to start unzip process: ${err.message}`));
+    });
+  });
+}
+
+config.init();
+
+async function getDependencies() {
+  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+
+  if (!fs.existsSync(devDependenciesLocation)) {
+    fs.mkdirSync(devDependenciesLocation);
+  }
+
+  let currentPlatform = getCurrentPlatform();
+
+  let latestOrchestratorRelease = await getLatestRelease(
+    "3sig/3suite-orchestrator",
+  );
+  let orchestratorFilename = await getPlatformBinary(
+    latestOrchestratorRelease,
+    getCurrentPlatform(),
+  );
+
+  fs.chmodSync(devDependenciesLocation + "/" + orchestratorFilename, 0o755);
+
+  let processes = structuredClone(config.get("processes", []));
+  let dependencies = [];
+
+  let getBinaryPromises = [];
+  for (let process of processes) {
+    if (process.source) {
+      dependencies.push(process);
+    }
+
+    getBinaryPromises.push(
+      (async () => {
+        let latestRelease = await getLatestRelease(process.source);
+        let filename = await getPlatformBinary(latestRelease, currentPlatform);
+        let downloadFileName = devDependenciesLocation + "/" + filename;
+        for (let sourceAction of process.sourceActions) {
+          if (sourceAction.type == "unzip") {
+            console.log("Unzipping", downloadFileName);
+            await unzipWithSpawn(downloadFileName, devDependenciesLocation);
+            console.log("Unzipped", downloadFileName);
+          } else if (sourceAction.type == "chmod") {
+            let chmodFile =
+              devDependenciesLocation + "/" + (sourceAction.file || filename);
+            fs.chmodSync(chmodFile, 0o755);
+          }
+        }
+
+        process.exec = process.sourceExecOverride || "./" + filename;
+
+        delete process.source;
+        delete process.sourceAction;
+        delete process.sourceExecOverride;
+      })(),
+    );
+
+    // console.log(platformBinary);
+  }
+
+  await Promise.all(getBinaryPromises);
+
+  return processes;
+}
+
+async function getLatestRelease(repo) {
+  const octokit = new Octokit.Octokit();
+
+  let releaseResponse = await octokit.request(`GET /repos/${repo}/releases`);
+
+  let releases = releaseResponse.data;
+  let latestRelease = releases.sort(
+    (a, b) => b.published_at - a.published_at,
+  )[0];
+
+  console.log(repo, latestRelease.name);
+  return latestRelease;
+}
+
+async function getPlatformBinary(release, platform) {
+  for (let asset of release.assets) {
+    if (asset.name.includes(platform)) {
+      const url = asset.browser_download_url;
+      let fileName = url.split("/").pop();
+      let downloadFileName =
+        config.get("devDependenciesLocation", ".") + "/" + fileName;
+      const resp = await fetch(url);
+
+      if (resp.ok && resp.body) {
+        console.log("Writing to file:", downloadFileName);
+        let writer = fs.createWriteStream(downloadFileName);
+        let readable = Readable.fromWeb(resp.body).pipe(writer);
+
+        await new Promise((resolve, reject) => {
+          readable.on("finish", resolve);
+          readable.on("error", reject);
+        });
+
+        console.log(downloadFileName, "written successfully");
+        return fileName;
+      }
+    }
+  }
+}
+
+function getCurrentPlatform() {
+  if (process.platform === "darwin") {
+    if (process.arch === "arm64") {
+      return "osx-arm";
+    } else {
+      return "osx-x64";
+    }
+  } else if (process.platform === "win32") {
+    return "win";
+  } else if (process.platform === "linux") {
+    return "linux";
+  }
+}
+
+async function setupDev() {
+  let processes = await getDependencies();
+
+  //read config.json5
+  let orchestratorConfigText = fs.readFileSync("config.json5", "utf8");
+  let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
+
+  let patchedConfig = fleece.patch(orchestratorConfigText, {
+    ...orchestratorConfig,
+    processes,
+  });
+  fs.writeFileSync(
+    config.get("devDependenciesLocation", ".") + "/config.json5",
+    patchedConfig,
+  );
+}
+
+export default {
+  setupDev,
+};
