@@ -39,24 +39,72 @@ function unzipWithSpawn(zipPath, outputDir) {
 
 config.init();
 
+function getExistingDependencies() {
+  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+  let existingDependencies = {};
+  if (!fs.existsSync(devDependenciesLocation + "/deps.json")) {
+    fs.writeFileSync(devDependenciesLocation + "/deps.json", JSON.stringify(existingDependencies));
+  }
+  let existingDependenciesFile = fs.readFileSync(devDependenciesLocation + "/deps.json", 'utf8');
+
+  existingDependencies = JSON.parse(existingDependenciesFile);
+
+  return existingDependencies;
+}
+
+async function getDependency(process, existingDependencies) {
+  let currentPlatform = getCurrentPlatform();
+  let latestRelease = await getLatestRelease(process.source);
+  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+
+  if (existingDependencies[process.source] == latestRelease.url) {
+    console.log("Already up to date:", process.source);
+    return;
+  }
+  let filename = await getPlatformBinary(latestRelease, currentPlatform);
+  let downloadFileName = devDependenciesLocation + "/" + filename;
+  for (let sourceAction of process.sourceActions) {
+    if (sourceAction.type == "unzip") {
+      console.log("Unzipping", downloadFileName);
+      await unzipWithSpawn(downloadFileName, devDependenciesLocation);
+      console.log("Unzipped", downloadFileName);
+    } else if (sourceAction.type == "chmod") {
+      let chmodFile =
+        devDependenciesLocation + "/" + (sourceAction.file || filename);
+      fs.chmodSync(chmodFile, 0o755);
+    }
+  }
+
+  process.exec = process.sourceExecOverride || "./" + filename;
+
+  existingDependencies[process.source] = latestRelease.url;
+
+  delete process.source;
+  delete process.sourceAction;
+  delete process.sourceExecOverride;
+}
+
 async function getDependencies() {
   let devDependenciesLocation = config.get("devDependenciesLocation", ".");
 
   if (!fs.existsSync(devDependenciesLocation)) {
     fs.mkdirSync(devDependenciesLocation);
   }
+  let existingDependencies = await getExistingDependencies();
 
   let currentPlatform = getCurrentPlatform();
 
-  let latestOrchestratorRelease = await getLatestRelease(
-    "3sig/3suite-orchestrator",
-  );
-  let orchestratorFilename = await getPlatformBinary(
-    latestOrchestratorRelease,
-    getCurrentPlatform(),
-  );
+  await getDependency({source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
 
-  fs.chmodSync(devDependenciesLocation + "/" + orchestratorFilename, 0o755);
+  // let latestOrchestratorRelease = await getLatestRelease(
+  //   "3sig/3suite-orchestrator",
+  // );
+  // let orchestratorFilename = await getPlatformBinary(
+  //   latestOrchestratorRelease,
+  //   getCurrentPlatform(),
+  // );
+
+  // fs.chmodSync(devDependenciesLocation + "/" + orchestratorFilename, 0o755);
 
   let processes = structuredClone(config.get("processes", []));
   let dependencies = [];
@@ -67,35 +115,17 @@ async function getDependencies() {
       dependencies.push(process);
     }
 
-    getBinaryPromises.push(
-      (async () => {
-        let latestRelease = await getLatestRelease(process.source);
-        let filename = await getPlatformBinary(latestRelease, currentPlatform);
-        let downloadFileName = devDependenciesLocation + "/" + filename;
-        for (let sourceAction of process.sourceActions) {
-          if (sourceAction.type == "unzip") {
-            console.log("Unzipping", downloadFileName);
-            await unzipWithSpawn(downloadFileName, devDependenciesLocation);
-            console.log("Unzipped", downloadFileName);
-          } else if (sourceAction.type == "chmod") {
-            let chmodFile =
-              devDependenciesLocation + "/" + (sourceAction.file || filename);
-            fs.chmodSync(chmodFile, 0o755);
-          }
-        }
-
-        process.exec = process.sourceExecOverride || "./" + filename;
-
-        delete process.source;
-        delete process.sourceAction;
-        delete process.sourceExecOverride;
-      })(),
-    );
+    getBinaryPromises.push(getDependency(process, existingDependencies));
 
     // console.log(platformBinary);
   }
 
   await Promise.all(getBinaryPromises);
+
+  fs.writeFileSync(
+    devDependenciesLocation + "/deps.json",
+    JSON.stringify(existingDependencies, null, 2)
+  );
 
   return processes;
 }
