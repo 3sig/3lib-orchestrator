@@ -1,9 +1,12 @@
-import config from "3lib-config";
 import * as fleece from "golden-fleece";
 import * as Octokit from "octokit";
 import * as fs from "fs";
-const { spawn } = require('child_process');
+import { spawn } from 'child_process';
 import { Readable } from "stream";
+
+let configFile = fs.readFileSync('orchestrator.json5', 'utf8');
+let config = fleece.evaluate(configFile);
+console.log(config);
 
 // Using spawn (better for large files, real-time output)
 function unzipWithSpawn(zipPath, outputDir) {
@@ -37,10 +40,8 @@ function unzipWithSpawn(zipPath, outputDir) {
   });
 }
 
-config.init();
-
 function getExistingDependencies() {
-  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+  let devDependenciesLocation = (config["devDependenciesLocation"] || ".");
   let existingDependencies = {};
   if (!fs.existsSync(devDependenciesLocation + "/deps.json")) {
     fs.writeFileSync(devDependenciesLocation + "/deps.json", JSON.stringify(existingDependencies));
@@ -55,29 +56,32 @@ function getExistingDependencies() {
 async function getDependency(process, existingDependencies) {
   let currentPlatform = getCurrentPlatform();
   let latestRelease = await getLatestRelease(process.source);
-  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+  let devDependenciesLocation =   (config["devDependenciesLocation"] ||  ".");
 
-  if (existingDependencies[process.source] == latestRelease.url) {
+  if (existingDependencies[process.source]?.url == latestRelease.url) {
     console.log("Already up to date:", process.source);
-    return;
   }
-  let filename = await getPlatformBinary(latestRelease, currentPlatform);
-  let downloadFileName = devDependenciesLocation + "/" + filename;
-  for (let sourceAction of process.sourceActions) {
-    if (sourceAction.type == "unzip") {
-      console.log("Unzipping", downloadFileName);
-      await unzipWithSpawn(downloadFileName, devDependenciesLocation);
-      console.log("Unzipped", downloadFileName);
-    } else if (sourceAction.type == "chmod") {
-      let chmodFile =
-        devDependenciesLocation + "/" + (sourceAction.file || filename);
-      fs.chmodSync(chmodFile, 0o755);
+  else {
+    let filename = await getPlatformBinary(latestRelease, currentPlatform);
+    let downloadFileName = devDependenciesLocation + "/" + filename;
+    for (let sourceAction of process.sourceActions) {
+      if (sourceAction.type == "unzip") {
+        console.log("Unzipping", downloadFileName);
+        await unzipWithSpawn(downloadFileName, devDependenciesLocation);
+        console.log("Unzipped", downloadFileName);
+      } else if (sourceAction.type == "chmod") {
+        let chmodFile =
+          devDependenciesLocation + "/" + (sourceAction.file || filename);
+        fs.chmodSync(chmodFile, 0o755);
+      }
     }
+    existingDependencies[process.source] = {
+      url: latestRelease.url,
+      filename: filename,
+    };
   }
 
-  process.exec = process.sourceExecOverride || "./" + filename;
-
-  existingDependencies[process.source] = latestRelease.url;
+  process.exec = process.sourceExecOverride || "./" + existingDependencies[process.source].filename;
 
   delete process.source;
   delete process.sourceAction;
@@ -85,7 +89,7 @@ async function getDependency(process, existingDependencies) {
 }
 
 async function getDependencies() {
-  let devDependenciesLocation = config.get("devDependenciesLocation", ".");
+  let devDependenciesLocation =   (config["devDependenciesLocation"] ||  ".");
 
   if (!fs.existsSync(devDependenciesLocation)) {
     fs.mkdirSync(devDependenciesLocation);
@@ -106,7 +110,7 @@ async function getDependencies() {
 
   // fs.chmodSync(devDependenciesLocation + "/" + orchestratorFilename, 0o755);
 
-  let processes = structuredClone(config.get("processes", []));
+  let processes = structuredClone(config["processes"] || []);
   let dependencies = [];
 
   let getBinaryPromises = [];
@@ -114,10 +118,11 @@ async function getDependencies() {
     if (process.source) {
       dependencies.push(process);
     }
+    console.log("a", process);
 
     getBinaryPromises.push(getDependency(process, existingDependencies));
 
-    // console.log(platformBinary);
+    console.log("b", process);
   }
 
   await Promise.all(getBinaryPromises);
@@ -150,7 +155,7 @@ async function getPlatformBinary(release, platform) {
       const url = asset.browser_download_url;
       let fileName = url.split("/").pop();
       let downloadFileName =
-        config.get("devDependenciesLocation", ".") + "/" + fileName;
+          (config["devDependenciesLocation"] ||  ".") + "/" + fileName;
       const resp = await fetch(url);
 
       if (resp.ok && resp.body) {
@@ -188,7 +193,7 @@ async function setupDev() {
   let processes = await getDependencies();
 
   //read config.json5
-  let orchestratorConfigText = fs.readFileSync("config.json5", "utf8");
+  let orchestratorConfigText = fs.readFileSync("orchestrator.json5", "utf8");
   let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
 
   let patchedConfig = fleece.patch(orchestratorConfigText, {
@@ -196,7 +201,7 @@ async function setupDev() {
     processes,
   });
   fs.writeFileSync(
-    config.get("devDependenciesLocation", ".") + "/config.json5",
+    (config["devDependenciesLocation"] ||  ".") + "/config.json5",
     patchedConfig,
   );
 }

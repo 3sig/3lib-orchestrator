@@ -4,10 +4,9 @@
   "description": "A library to download 3suite utils alongside orchestrator at runtime and at buildtime.",
   "type": "module",
   "bin": {
-    "orchestrator-install": "./3lib-orchestrator.js"
+    "orchestrator-install": "./install.js"
   },
   "dependencies": {
-    "3lib-config": "github:3sig/3lib-config",
     "golden-fleece": "^1.0.9",
     "octokit": "^5.0.3"
   }
