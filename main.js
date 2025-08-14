@@ -185,7 +185,11 @@ function getCurrentPlatform() {
   } else if (process.platform === "win32") {
     return "win";
   } else if (process.platform === "linux") {
-    return "linux";
+    if (process.arch === "arm64") {
+      return "linux-arm";
+    } else {
+      return "linux";
+    }
   }
 }
 
