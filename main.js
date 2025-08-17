@@ -62,7 +62,7 @@ async function getDependency(process, existingDependencies) {
     console.log("Already up to date:", process.source);
   }
   else {
-    let filename = await getPlatformBinary(latestRelease, currentPlatform);
+    let filename = await getPlatformBinary(latestRelease, currentPlatform, process);
     let downloadFileName = devDependenciesLocation + "/" + filename;
     for (let sourceAction of process.sourceActions) {
       if (sourceAction.type == "unzip") {
@@ -135,9 +135,34 @@ async function getLatestRelease(repo) {
   return latestRelease;
 }
 
-async function getPlatformBinary(release, platform) {
+function wildcardToRegex(pattern) {
+  return new RegExp(
+    '^' + 
+    pattern
+      .replace(/[.+^${}()|[\]\\*?]/g, '\\$&')
+      .replace(/\\\*/g, '.*')
+      .replace(/\\\?/g, '.') +
+    '$'
+  );
+}
+
+async function getPlatformBinary(release, platform, process = {}) {
+  const sourceFileType = process.sourceFileType || "platform-binary";
+  
   for (let asset of release.assets) {
-    if (asset.name.includes(platform)) {
+    let matches = false;
+    
+    if (sourceFileType === "pattern-match") {
+      if (!process.sourceFilePattern) {
+        throw new Error(`sourceFilePattern is required when sourceFileType is "pattern-match"`);
+      }
+      const regex = wildcardToRegex(process.sourceFilePattern);
+      matches = regex.test(asset.name);
+    } else {
+      matches = asset.name.includes(platform);
+    }
+    
+    if (matches) {
       const url = asset.browser_download_url;
       let fileName = url.split("/").pop();
       let downloadFileName =
