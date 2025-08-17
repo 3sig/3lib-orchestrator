@@ -30,6 +30,24 @@
     //   sourceFilePattern: "data-*.zip",
     //   sourceActions: [{ type: "unzip" }, { type: "chmod" }],
     // },
+    
+    // Example of using local folder as source with platform-based selection:
+    // {
+    //   name: "local-tool",
+    //   sourceType: "local",
+    //   localPath: "/path/to/local/binaries",
+    //   sourceActions: [{ type: "chmod" }],
+    // },
+    
+    // Example of using local folder with pattern matching:
+    // {
+    //   name: "local-data-tool", 
+    //   sourceType: "local",
+    //   localPath: "/path/to/local/files",
+    //   sourceFileType: "pattern-match",
+    //   sourceFilePattern: "tool-*.zip",
+    //   sourceActions: [{ type: "unzip" }, { type: "chmod" }],
+    // },
   ],
 
   configs: {

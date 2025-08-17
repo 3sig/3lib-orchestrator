@@ -55,37 +55,82 @@ function getExistingDependencies() {
 
 async function getDependency(process, existingDependencies) {
   let currentPlatform = getCurrentPlatform();
+  let devDependenciesLocation = (config["devDependenciesLocation"] || ".");
+
+  const sourceType = process.sourceType || "github";
+
+  if (sourceType === "local") {
+    await getDependencyFromLocal(process, existingDependencies, currentPlatform, devDependenciesLocation);
+  } else {
+    await getDependencyFromGitHub(process, existingDependencies, currentPlatform, devDependenciesLocation);
+  }
+}
+
+async function processSourceActions(sourceActions, filename, devDependenciesLocation) {
+  for (let sourceAction of sourceActions) {
+    if (sourceAction.type == "unzip") {
+      const targetFileName = devDependenciesLocation + "/" + filename;
+      console.log("Unzipping", targetFileName);
+      await unzipWithSpawn(targetFileName, devDependenciesLocation);
+      console.log("Unzipped", targetFileName);
+    } else if (sourceAction.type == "chmod") {
+      let chmodFile = devDependenciesLocation + "/" + (sourceAction.file || filename);
+      fs.chmodSync(chmodFile, 0o755);
+    }
+  }
+}
+
+function setProcessExec(process, dependencyKey, existingDependencies) {
+  process.exec = process.sourceExecOverride || "./" + existingDependencies[dependencyKey].filename;
+}
+
+function cleanupProcessObject(process) {
+  delete process.localPath;
+  delete process.sourceType;
+  delete process.source;
+  delete process.sourceAction;
+  delete process.sourceExecOverride;
+}
+
+async function getDependencyFromGitHub(process, existingDependencies, currentPlatform, devDependenciesLocation) {
   let latestRelease = await getLatestRelease(process.source);
-  let devDependenciesLocation =   (config["devDependenciesLocation"] ||  ".");
 
   if (existingDependencies[process.source]?.url == latestRelease.url) {
     console.log("Already up to date:", process.source);
   }
   else {
     let filename = await getPlatformBinary(latestRelease, currentPlatform, process);
-    let downloadFileName = devDependenciesLocation + "/" + filename;
-    for (let sourceAction of process.sourceActions) {
-      if (sourceAction.type == "unzip") {
-        console.log("Unzipping", downloadFileName);
-        await unzipWithSpawn(downloadFileName, devDependenciesLocation);
-        console.log("Unzipped", downloadFileName);
-      } else if (sourceAction.type == "chmod") {
-        let chmodFile =
-          devDependenciesLocation + "/" + (sourceAction.file || filename);
-        fs.chmodSync(chmodFile, 0o755);
-      }
-    }
+    await processSourceActions(process.sourceActions, filename, devDependenciesLocation);
     existingDependencies[process.source] = {
       url: latestRelease.url,
       filename: filename,
     };
   }
 
-  process.exec = process.sourceExecOverride || "./" + existingDependencies[process.source].filename;
+  setProcessExec(process, process.source, existingDependencies);
+  cleanupProcessObject(process);
+}
 
-  delete process.source;
-  delete process.sourceAction;
-  delete process.sourceExecOverride;
+async function getDependencyFromLocal(process, existingDependencies, currentPlatform, devDependenciesLocation) {
+  const localPath = process.localPath;
+  if (!localPath) {
+    throw new Error("localPath is required when sourceType is 'local'");
+  }
+
+  if (!fs.existsSync(localPath)) {
+    throw new Error(`Local path does not exist: ${localPath}`);
+  }
+
+  let filename = await getLocalPlatformBinary(localPath, currentPlatform, process, devDependenciesLocation);
+  await processSourceActions(process.sourceActions, filename, devDependenciesLocation);
+
+  existingDependencies[localPath] = {
+    path: localPath,
+    filename: filename,
+  };
+
+  setProcessExec(process, localPath, existingDependencies);
+  cleanupProcessObject(process);
 }
 
 async function getDependencies() {
@@ -105,7 +150,7 @@ async function getDependencies() {
 
   let getBinaryPromises = [];
   for (let process of processes) {
-    if (process.source) {
+    if (process.source || process.localPath) {
       dependencies.push(process);
     }
 
@@ -137,7 +182,7 @@ async function getLatestRelease(repo) {
 
 function wildcardToRegex(pattern) {
   return new RegExp(
-    '^' + 
+    '^' +
     pattern
       .replace(/[.+^${}()|[\]\\*?]/g, '\\$&')
       .replace(/\\\*/g, '.*')
@@ -146,12 +191,45 @@ function wildcardToRegex(pattern) {
   );
 }
 
+async function getLocalPlatformBinary(localPath, platform, process = {}, devDependenciesLocation) {
+  const sourceFileType = process.sourceFileType || "platform-binary";
+
+  const files = fs.readdirSync(localPath);
+
+  for (let fileName of files) {
+    let matches = false;
+
+    if (sourceFileType === "pattern-match") {
+      if (!process.sourceFilePattern) {
+        throw new Error(`sourceFilePattern is required when sourceFileType is "pattern-match"`);
+      }
+      const regex = wildcardToRegex(process.sourceFilePattern);
+      matches = regex.test(fileName);
+    } else {
+      matches = fileName.includes(platform);
+    }
+
+    if (matches) {
+      const sourcePath = localPath + "/" + fileName;
+      const targetPath = devDependenciesLocation + "/" + fileName;
+
+      console.log("Copying from local:", sourcePath, "to", targetPath);
+      fs.copyFileSync(sourcePath, targetPath);
+      console.log("Copy completed:", fileName);
+
+      return fileName;
+    }
+  }
+
+  throw new Error(`No matching file found in ${localPath} for platform ${platform} with sourceFileType ${sourceFileType}`);
+}
+
 async function getPlatformBinary(release, platform, process = {}) {
   const sourceFileType = process.sourceFileType || "platform-binary";
-  
+
   for (let asset of release.assets) {
     let matches = false;
-    
+
     if (sourceFileType === "pattern-match") {
       if (!process.sourceFilePattern) {
         throw new Error(`sourceFilePattern is required when sourceFileType is "pattern-match"`);
@@ -161,7 +239,7 @@ async function getPlatformBinary(release, platform, process = {}) {
     } else {
       matches = asset.name.includes(platform);
     }
-    
+
     if (matches) {
       const url = asset.browser_download_url;
       let fileName = url.split("/").pop();
