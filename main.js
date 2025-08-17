@@ -100,16 +100,6 @@ async function getDependencies() {
 
   await getDependency({source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
 
-  // let latestOrchestratorRelease = await getLatestRelease(
-  //   "3sig/3suite-orchestrator",
-  // );
-  // let orchestratorFilename = await getPlatformBinary(
-  //   latestOrchestratorRelease,
-  //   getCurrentPlatform(),
-  // );
-
-  // fs.chmodSync(devDependenciesLocation + "/" + orchestratorFilename, 0o755);
-
   let processes = structuredClone(config["processes"] || []);
   let dependencies = [];
 
@@ -118,11 +108,8 @@ async function getDependencies() {
     if (process.source) {
       dependencies.push(process);
     }
-    console.log("a", process);
 
     getBinaryPromises.push(getDependency(process, existingDependencies));
-
-    console.log("b", process);
   }
 
   await Promise.all(getBinaryPromises);
@@ -145,7 +132,6 @@ async function getLatestRelease(repo) {
     (a, b) => b.published_at - a.published_at,
   )[0];
 
-  console.log(repo, latestRelease.name);
   return latestRelease;
 }
 
