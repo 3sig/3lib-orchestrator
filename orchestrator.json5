@@ -7,21 +7,21 @@
       sourceActions: [{ type: "chmod" }],
       config: {port: 4004, directory: "node_modules"},
     },
-    //{
-    //  name: "browser",
-    //  source: "3sig/3suite-browser",
-    //  sourceActions: [
-    //    {
-    //      type: "unzip"
-    //    },
-    //    //{
-    //    //  type: "chmod",
-    //    //  file: "3suite-browser.app/Contents/MacOS/3suite-browser"
-    //    //}
-    //  ],
-    //  sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
-    //  loadConfig: "browser",
-    //},
+    {
+      name: "browser",
+      source: "3sig/3suite-browser",
+      sourceActions: [
+        {
+          type: "unzip"
+        },
+        //{
+        //  type: "chmod",
+        //  file: "3suite-browser.app/Contents/MacOS/3suite-browser"
+        //}
+      ],
+      sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
+      loadConfig: "browser",
+    },
     {
         name: "local-data-tool",
         sourceType: "local",
