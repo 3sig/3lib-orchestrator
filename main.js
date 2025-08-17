@@ -79,6 +79,25 @@ async function processSourceActions(sourceActions, filename, devDependenciesLoca
     } else if (sourceAction.type == "chmod") {
       let chmodFile = devDependenciesLocation + "/" + (sourceAction.file || filename);
       fs.chmodSync(chmodFile, 0o755);
+    } else if (sourceAction.type == "move") {
+      if (!sourceAction.location) {
+        throw new Error("location is required for move action");
+      }
+
+      const sourceFile = devDependenciesLocation + "/" + filename;
+      const targetFilename = sourceAction.filename || filename;
+      const targetLocation = devDependenciesLocation + "/" + sourceAction.location;
+      const targetFile = targetLocation + "/" + targetFilename;
+
+      // Create target directory if it doesn't exist
+      if (!fs.existsSync(targetLocation)) {
+        fs.mkdirSync(targetLocation, { recursive: true });
+        console.log("Created directory:", targetLocation);
+      }
+
+      console.log("Moving", sourceFile, "to", targetFile);
+      fs.renameSync(sourceFile, targetFile);
+      console.log("Moved to:", targetFile);
     }
   }
 }

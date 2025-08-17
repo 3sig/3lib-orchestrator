@@ -28,6 +28,9 @@
         localPath: "./",
         sourceFileType: "pattern-match",
         sourceFilePattern: "m*",
+        sourceActions: [
+          { type: "move", location: "./3db/" }
+        ],
         sourceExclude: true
     },
     // Example of using pattern matching instead of platform-based selection:
@@ -37,6 +40,16 @@
     //   sourceFileType: "pattern-match",
     //   sourceFilePattern: "data-*.zip",
     //   sourceActions: [{ type: "unzip" }, { type: "chmod" }],
+    // },
+
+    // Example of using move action to organize files:
+    // {
+    //   name: "organized-tool",
+    //   source: "org/some-tool",
+    //   sourceActions: [
+    //     { type: "chmod" },
+    //     { type: "move", location: "./bin", filename: "my-tool" }
+    //   ],
     // },
 
     // Example of using local folder as source with platform-based selection:
