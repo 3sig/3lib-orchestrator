@@ -6,7 +6,6 @@ import { Readable } from "stream";
 
 let configFile = fs.readFileSync('orchestrator.json5', 'utf8');
 let config = fleece.evaluate(configFile);
-console.log(config);
 
 // Using spawn (better for large files, real-time output)
 function unzipWithSpawn(zipPath, outputDir) {
@@ -67,6 +66,10 @@ async function getDependency(process, existingDependencies) {
 }
 
 async function processSourceActions(sourceActions, filename, devDependenciesLocation) {
+  if (!sourceActions || sourceActions.length === 0) {
+    return;
+  }
+
   for (let sourceAction of sourceActions) {
     if (sourceAction.type == "unzip") {
       const targetFileName = devDependenciesLocation + "/" + filename;
@@ -140,8 +143,6 @@ async function getDependencies() {
     fs.mkdirSync(devDependenciesLocation);
   }
   let existingDependencies = await getExistingDependencies();
-
-  let currentPlatform = getCurrentPlatform();
 
   await getDependency({source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
 
