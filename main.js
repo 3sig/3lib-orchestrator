@@ -286,13 +286,16 @@ function getCurrentPlatform() {
 async function setupDev() {
   let processes = await getDependencies();
 
+  // Filter out processes that shouldn't be included in the final config
+  let finalProcesses = processes.filter(process => !process.sourceExclude);
+
   //read config.json5
   let orchestratorConfigText = fs.readFileSync("orchestrator.json5", "utf8");
   let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
 
   let patchedConfig = fleece.patch(orchestratorConfigText, {
     ...orchestratorConfig,
-    processes,
+    processes: finalProcesses,
   });
   fs.writeFileSync(
     (config["devDependenciesLocation"] ||  ".") + "/config.json5",

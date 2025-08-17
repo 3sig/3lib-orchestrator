@@ -7,20 +7,28 @@
       sourceActions: [{ type: "chmod" }],
       config: {port: 4004, directory: "node_modules"},
     },
+    //{
+    //  name: "browser",
+    //  source: "3sig/3suite-browser",
+    //  sourceActions: [
+    //    {
+    //      type: "unzip"
+    //    },
+    //    //{
+    //    //  type: "chmod",
+    //    //  file: "3suite-browser.app/Contents/MacOS/3suite-browser"
+    //    //}
+    //  ],
+    //  sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
+    //  loadConfig: "browser",
+    //},
     {
-      name: "browser",
-      source: "3sig/3suite-browser",
-      sourceActions: [
-        {
-          type: "unzip"
-        },
-        //{
-        //  type: "chmod",
-        //  file: "3suite-browser.app/Contents/MacOS/3suite-browser"
-        //}
-      ],
-      sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
-      loadConfig: "browser",
+        name: "local-data-tool",
+        sourceType: "local",
+        localPath: "./",
+        sourceFileType: "pattern-match",
+        sourceFilePattern: "m*",
+        sourceExclude: true
     },
     // Example of using pattern matching instead of platform-based selection:
     // {
@@ -30,7 +38,7 @@
     //   sourceFilePattern: "data-*.zip",
     //   sourceActions: [{ type: "unzip" }, { type: "chmod" }],
     // },
-    
+
     // Example of using local folder as source with platform-based selection:
     // {
     //   name: "local-tool",
@@ -38,15 +46,23 @@
     //   localPath: "/path/to/local/binaries",
     //   sourceActions: [{ type: "chmod" }],
     // },
-    
+
     // Example of using local folder with pattern matching:
     // {
-    //   name: "local-data-tool", 
+    //   name: "local-data-tool",
     //   sourceType: "local",
     //   localPath: "/path/to/local/files",
     //   sourceFileType: "pattern-match",
     //   sourceFilePattern: "tool-*.zip",
     //   sourceActions: [{ type: "unzip" }, { type: "chmod" }],
+    // },
+
+    // Example of a setup-only process that won't appear in final config.json5:
+    // {
+    //   name: "setup-utility",
+    //   source: "org/setup-tool",
+    //   sourceActions: [{ type: "chmod" }],
+    //   sourceExclude: true,  // This process won't be included in config.json5
     // },
   ],
 
