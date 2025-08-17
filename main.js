@@ -166,6 +166,11 @@ async function getDependencies() {
   await getDependency({source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
 
   let processes = structuredClone(config["processes"] || []);
+  let currentPlatform = getCurrentPlatform();
+  
+  // Apply platform-specific configuration to each process
+  processes = processes.map(process => applyPlatformConfigToProcess(process, currentPlatform));
+  
   let dependencies = [];
 
   let getBinaryPromises = [];
@@ -300,6 +305,33 @@ function getCurrentPlatform() {
       return "linux";
     }
   }
+}
+
+function deepMerge(target, source) {
+  const result = { ...target };
+  
+  for (const key in source) {
+    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+      result[key] = deepMerge(result[key] || {}, source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  
+  return result;
+}
+
+function applyPlatformConfigToProcess(process, currentPlatform) {
+  if (!process.sourcePlatformConfig || !process.sourcePlatformConfig[currentPlatform]) {
+    return process;
+  }
+  
+  const platformConfig = process.sourcePlatformConfig[currentPlatform];
+  const mergedProcess = deepMerge(process, platformConfig);
+  
+  delete mergedProcess.sourcePlatformConfig;
+  
+  return mergedProcess;
 }
 
 async function setupDev() {

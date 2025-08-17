@@ -6,6 +6,11 @@
       source: "3sig/3suite-http-server",
       sourceActions: [{ type: "chmod" }],
       config: {port: 4004, directory: "node_modules"},
+      sourcePlatformConfig: {
+        "win": {
+          sourceActions: []
+        }
+      }
     },
     {
       name: "browser",
@@ -21,6 +26,15 @@
       ],
       sourceExecOverride: "./3suite-browser.app/Contents/MacOS/3suite-browser",
       loadConfig: "browser",
+      // Example: Platform-specific overrides for browser
+      sourcePlatformConfig: {
+        "linux-arm": {
+          sourceExecOverride: "./3suite-browser-linux-arm64/3suite-browser"
+        },
+        "win": {
+          sourceExecOverride: "./3suite-browser.exe"  // Windows executable
+        }
+      }
     },
     {
         name: "local-data-tool",
@@ -29,7 +43,7 @@
         sourceFileType: "pattern-match",
         sourceFilePattern: "m*",
         sourceActions: [
-          { type: "move", location: "./3db/" }
+          { type: "move", location: "./3db" }
         ],
         sourceExclude: true
     },
