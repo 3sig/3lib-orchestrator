@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "A library to download 3suite utils alongside orchestrator at runtime and at buildtime.",
   "type": "module",
+  "main": "main.js",
   "bin": {
     "orchestrator-install": "./install.js"
   },
