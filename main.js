@@ -4,9 +4,6 @@ import * as fs from "fs";
 import { spawn } from 'child_process';
 import { Readable } from "stream";
 
-let configFile = fs.readFileSync('orchestrator.json5', 'utf8');
-let config = fleece.evaluate(configFile);
-
 // Using spawn (better for large files, real-time output)
 function unzipWithSpawn(zipPath, outputDir) {
   return new Promise((resolve, reject) => {
@@ -39,7 +36,7 @@ function unzipWithSpawn(zipPath, outputDir) {
   });
 }
 
-function getExistingDependencies() {
+function getExistingDependencies(config) {
   let devDependenciesLocation = (config["devDependenciesLocation"] || ".");
   let existingDependencies = {};
   if (!fs.existsSync(devDependenciesLocation + "/deps.json")) {
@@ -52,7 +49,7 @@ function getExistingDependencies() {
   return existingDependencies;
 }
 
-async function getDependency(process, existingDependencies) {
+async function getDependency(config, process, existingDependencies) {
   let currentPlatform = getCurrentPlatform();
   let devDependenciesLocation = (config["devDependenciesLocation"] || ".");
 
@@ -155,22 +152,22 @@ async function getDependencyFromLocal(process, existingDependencies, currentPlat
   cleanupProcessObject(process);
 }
 
-async function getDependencies() {
+async function getDependencies(config) {
   let devDependenciesLocation =   (config["devDependenciesLocation"] ||  ".");
 
   if (!fs.existsSync(devDependenciesLocation)) {
     fs.mkdirSync(devDependenciesLocation);
   }
-  let existingDependencies = await getExistingDependencies();
+  let existingDependencies = await getExistingDependencies(config);
 
-  await getDependency({source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
+  await getDependency(config, {source: "3sig/3suite-orchestrator", sourceActions: [{type: "chmod"}]}, existingDependencies)
 
   let processes = structuredClone(config["processes"] || []);
   let currentPlatform = getCurrentPlatform();
-  
+
   // Apply platform-specific configuration to each process
   processes = processes.map(process => applyPlatformConfigToProcess(process, currentPlatform));
-  
+
   let dependencies = [];
 
   let getBinaryPromises = [];
@@ -179,7 +176,7 @@ async function getDependencies() {
       dependencies.push(process);
     }
 
-    getBinaryPromises.push(getDependency(process, existingDependencies));
+    getBinaryPromises.push(getDependency(config, process, existingDependencies));
   }
 
   await Promise.all(getBinaryPromises);
@@ -309,7 +306,7 @@ function getCurrentPlatform() {
 
 function deepMerge(target, source) {
   const result = { ...target };
-  
+
   for (const key in source) {
     if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
       result[key] = deepMerge(result[key] || {}, source[key]);
@@ -317,7 +314,7 @@ function deepMerge(target, source) {
       result[key] = source[key];
     }
   }
-  
+
   return result;
 }
 
@@ -325,31 +322,31 @@ function applyPlatformConfigToProcess(process, currentPlatform) {
   if (!process.sourcePlatformConfig || !process.sourcePlatformConfig[currentPlatform]) {
     return process;
   }
-  
+
   const platformConfig = process.sourcePlatformConfig[currentPlatform];
   const mergedProcess = deepMerge(process, platformConfig);
-  
+
   delete mergedProcess.sourcePlatformConfig;
-  
+
   return mergedProcess;
 }
 
-async function setupDev() {
-  let processes = await getDependencies();
+async function setupDev(filepath = "orchestrator.json5") {
+  //read config.json5
+  let orchestratorConfigText = fs.readFileSync(filepath, "utf8");
+  let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
+
+  let processes = await getDependencies(orchestratorConfig);
 
   // Filter out processes that shouldn't be included in the final config
   let finalProcesses = processes.filter(process => !process.sourceExclude);
-
-  //read config.json5
-  let orchestratorConfigText = fs.readFileSync("orchestrator.json5", "utf8");
-  let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
 
   let patchedConfig = fleece.patch(orchestratorConfigText, {
     ...orchestratorConfig,
     processes: finalProcesses,
   });
   fs.writeFileSync(
-    (config["devDependenciesLocation"] ||  ".") + "/config.json5",
+    (orchestratorConfig["devDependenciesLocation"] ||  ".") + "/config.json5",
     patchedConfig,
   );
 }
