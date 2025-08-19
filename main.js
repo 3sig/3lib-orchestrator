@@ -118,7 +118,7 @@ async function getDependencyFromGitHub(process, existingDependencies, currentPla
     console.log("Already up to date:", process.source);
   }
   else {
-    let filename = await getPlatformBinary(latestRelease, currentPlatform, process);
+    let filename = await getPlatformBinary(latestRelease, currentPlatform, devDependenciesLocation, process);
     await processSourceActions(process.sourceActions, filename, devDependenciesLocation);
     existingDependencies[process.source] = {
       url: latestRelease.url,
@@ -246,7 +246,7 @@ async function getLocalPlatformBinary(localPath, platform, process = {}, devDepe
   throw new Error(`No matching file found in ${localPath} for platform ${platform} with sourceFileType ${sourceFileType}`);
 }
 
-async function getPlatformBinary(release, platform, process = {}) {
+async function getPlatformBinary(release, platform, devDependenciesLocation, process = {}) {
   const sourceFileType = process.sourceFileType || "platform-binary";
 
   for (let asset of release.assets) {
@@ -266,7 +266,7 @@ async function getPlatformBinary(release, platform, process = {}) {
       const url = asset.browser_download_url;
       let fileName = url.split("/").pop();
       let downloadFileName =
-          (config["devDependenciesLocation"] ||  ".") + "/" + fileName;
+          (devDependenciesLocation ||  ".") + "/" + fileName;
       const resp = await fetch(url);
 
       if (resp.ok && resp.body) {
