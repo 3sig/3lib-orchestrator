@@ -4,6 +4,9 @@ import * as fs from "fs";
 import { spawn } from 'child_process';
 import { Readable } from "stream";
 
+// Track ongoing downloads to prevent race conditions
+const downloadPromises = new Map();
+
 // Using spawn (better for large files, real-time output)
 function unzipWithSpawn(zipPath, outputDir) {
   return new Promise((resolve, reject) => {
@@ -267,20 +270,47 @@ async function getPlatformBinary(release, platform, devDependenciesLocation, pro
       let fileName = url.split("/").pop();
       let downloadFileName =
           (devDependenciesLocation ||  ".") + "/" + fileName;
-      const resp = await fetch(url);
 
-      if (resp.ok && resp.body) {
-        console.log("Writing to file:", downloadFileName);
-        let writer = fs.createWriteStream(downloadFileName);
-        let readable = Readable.fromWeb(resp.body).pipe(writer);
-
-        await new Promise((resolve, reject) => {
-          readable.on("finish", resolve);
-          readable.on("error", reject);
-        });
-
-        console.log(downloadFileName, "written successfully");
+      // Check if this file is already being downloaded
+      if (downloadPromises.has(downloadFileName)) {
+        console.log("File already being downloaded, waiting:", downloadFileName);
+        await downloadPromises.get(downloadFileName);
+        console.log("Download completed for:", downloadFileName);
         return fileName;
+      }
+
+      // Check if file already exists
+      if (fs.existsSync(downloadFileName)) {
+        console.log("File already exists:", downloadFileName);
+        return fileName;
+      }
+
+      // Create download promise and store it
+      const downloadPromise = (async () => {
+        const resp = await fetch(url);
+
+        if (resp.ok && resp.body) {
+          console.log("Writing to file:", downloadFileName);
+          let writer = fs.createWriteStream(downloadFileName);
+          let readable = Readable.fromWeb(resp.body).pipe(writer);
+
+          await new Promise((resolve, reject) => {
+            readable.on("finish", resolve);
+            readable.on("error", reject);
+          });
+
+          console.log(downloadFileName, "written successfully");
+        }
+      })();
+
+      downloadPromises.set(downloadFileName, downloadPromise);
+
+      try {
+        await downloadPromise;
+        return fileName;
+      } finally {
+        // Clean up the promise after completion
+        downloadPromises.delete(downloadFileName);
       }
     }
   }
