@@ -1,42 +1,15 @@
 import * as fleece from "golden-fleece";
 import * as Octokit from "octokit";
 import * as fs from "fs";
-import { spawn } from 'child_process';
 import { Readable } from "stream";
+import AdmZip from "adm-zip";
 
 // Track ongoing downloads to prevent race conditions
 const downloadPromises = new Map();
 
-// Using spawn (better for large files, real-time output)
 function unzipWithSpawn(zipPath, outputDir) {
-  return new Promise((resolve, reject) => {
-    const process = spawn('unzip', ['-o', zipPath, '-d', outputDir]);
-
-    let stdout = '';
-    let stderr = '';
-
-    process.stdout.on('data', (data) => {
-      stdout += data.toString();
-      console.log(`stdout: ${data}`);
-    });
-
-    process.stderr.on('data', (data) => {
-      stderr += data.toString();
-      console.log(`stderr: ${data}`);
-    });
-
-    process.on('close', (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(`Unzip process exited with code ${code}: ${stderr}`));
-      }
-    });
-
-    process.on('error', (err) => {
-      reject(new Error(`Failed to start unzip process: ${err.message}`));
-    });
-  });
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(outputDir, true);
 }
 
 function getExistingDependencies(config) {
@@ -74,7 +47,7 @@ async function processSourceActions(sourceActions, filename, devDependenciesLoca
     if (sourceAction.type == "unzip") {
       const targetFileName = devDependenciesLocation + "/" + filename;
       console.log("Unzipping", targetFileName);
-      await unzipWithSpawn(targetFileName, devDependenciesLocation);
+      unzipWithSpawn(targetFileName, devDependenciesLocation);
       console.log("Unzipped", targetFileName);
     } else if (sourceAction.type == "chmod") {
       let chmodFile = devDependenciesLocation + "/" + (sourceAction.file || filename);
