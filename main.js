@@ -31,13 +31,20 @@ async function getDependency(config, process, existingDependencies) {
   let currentPlatform = getCurrentPlatform();
   let devDependenciesLocation = (config["devDependenciesLocation"] || ".");
 
+  let result = await fetchProcessBinary(process, existingDependencies, currentPlatform, devDependenciesLocation);
+  if (result.needsActions) {
+    await processSourceActions(process.sourceActions, result.filename, devDependenciesLocation, process);
+  }
+}
+
+async function fetchProcessBinary(process, existingDependencies, currentPlatform, devDependenciesLocation) {
   const sourceType = process.sourceType || "github";
 
   if (sourceType === "local") {
-    await getDependencyFromLocal(process, existingDependencies, currentPlatform, devDependenciesLocation);
-  } else {
-    await getDependencyFromGitHub(process, existingDependencies, currentPlatform, devDependenciesLocation);
+    return await fetchLocalBinary(process, existingDependencies, currentPlatform, devDependenciesLocation);
   }
+
+  return await fetchGitHubBinary(process, existingDependencies, currentPlatform, devDependenciesLocation);
 }
 
 async function processSourceActions(sourceActions, filename, devDependenciesLocation, process) {
@@ -96,26 +103,27 @@ function cleanupProcessObject(process) {
   delete process.sourceExecOverride;
 }
 
-async function getDependencyFromGitHub(process, existingDependencies, currentPlatform, devDependenciesLocation) {
+async function fetchGitHubBinary(process, existingDependencies, currentPlatform, devDependenciesLocation) {
   let latestRelease = await getLatestRelease(process.source);
 
   if (existingDependencies[process.source]?.url == latestRelease.url) {
     console.log("Already up to date:", process.source);
-  }
-  else {
-    let filename = await getPlatformBinary(latestRelease, currentPlatform, devDependenciesLocation, process);
-    await processSourceActions(process.sourceActions, filename, devDependenciesLocation, process);
-    existingDependencies[process.source] = {
-      url: latestRelease.url,
-      filename: filename,
+    return {
+      filename: existingDependencies[process.source].filename,
+      needsActions: false,
     };
   }
 
-  setProcessExec(process, process.source, existingDependencies);
-  cleanupProcessObject(process);
+  let filename = await getPlatformBinary(latestRelease, currentPlatform, devDependenciesLocation, process);
+  existingDependencies[process.source] = {
+    url: latestRelease.url,
+    filename: filename,
+  };
+
+  return { filename, needsActions: true };
 }
 
-async function getDependencyFromLocal(process, existingDependencies, currentPlatform, devDependenciesLocation) {
+async function fetchLocalBinary(process, existingDependencies, currentPlatform, devDependenciesLocation) {
   const localPath = process.localPath;
   if (!localPath) {
     throw new Error("localPath is required when sourceType is 'local'");
@@ -126,15 +134,39 @@ async function getDependencyFromLocal(process, existingDependencies, currentPlat
   }
 
   let filename = await getLocalPlatformBinary(localPath, currentPlatform, process, devDependenciesLocation);
-  await processSourceActions(process.sourceActions, filename, devDependenciesLocation, process);
-
   existingDependencies[localPath] = {
     path: localPath,
     filename: filename,
   };
 
-  setProcessExec(process, localPath, existingDependencies);
-  cleanupProcessObject(process);
+  return { filename, needsActions: true };
+}
+
+const PROCESS_REFERENCE_PATTERN = /%([^%\s]+)%/g;
+
+// Recursively resolve %processName% references in a config value using the
+// discovered filename map. Unknown names are left as-is, so shell env vars
+// like %USERPROFILE% in command actions keep working.
+function substituteProcessReferences(value, filenameMap) {
+  if (typeof value === "string") {
+    return value.replace(PROCESS_REFERENCE_PATTERN, (match, name) => {
+      return Object.prototype.hasOwnProperty.call(filenameMap, name) ? filenameMap[name] : match;
+    });
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => substituteProcessReferences(item, filenameMap));
+  }
+
+  if (value && typeof value === "object") {
+    const result = {};
+    for (const key of Object.keys(value)) {
+      result[key] = substituteProcessReferences(value[key], filenameMap);
+    }
+    return result;
+  }
+
+  return value;
 }
 
 async function getDependencies(config) {
@@ -153,18 +185,55 @@ async function getDependencies(config) {
   // Apply platform-specific configuration to each process
   processes = processes.map(process => applyPlatformConfigToProcess(process, currentPlatform));
 
-  let dependencies = [];
-
-  let getBinaryPromises = [];
-  for (let process of processes) {
-    if (process.source || process.localPath) {
-      dependencies.push(process);
+  // Phase 1: fetch/copy all source binaries in parallel, recording the
+  // filename each process discovered (keyed by process name) so that
+  // cross-process references resolve before any source actions run.
+  let filenameMap = {};
+  let fetchResults = await Promise.all(processes.map(async process => {
+    if (!process.source && !process.localPath) {
+      return null;
     }
 
-    getBinaryPromises.push(getDependency(config, process, existingDependencies));
-  }
+    let result = await fetchProcessBinary(process, existingDependencies, currentPlatform, devDependenciesLocation);
+    if (process.name) {
+      filenameMap[process.name] = result.filename;
+    }
+    return { process, result };
+  }));
 
-  await Promise.all(getBinaryPromises);
+  // Phase 2: resolve references, run source actions, and set exec
+  await Promise.all(fetchResults.map(async entry => {
+    if (!entry) {
+      return;
+    }
+    let { process, result } = entry;
+
+    if (typeof process.sourceExecOverride === "string") {
+      process.sourceExecOverride = substituteProcessReferences(process.sourceExecOverride, filenameMap);
+    }
+
+    if (process.sourceActions) {
+      process.sourceActions = substituteProcessReferences(process.sourceActions, filenameMap);
+    }
+
+    if (result.needsActions) {
+      await processSourceActions(process.sourceActions, result.filename, devDependenciesLocation, process);
+    }
+
+    let dependencyKey = (process.sourceType || "github") === "local" ? process.localPath : process.source;
+    setProcessExec(process, dependencyKey, existingDependencies);
+    cleanupProcessObject(process);
+  }));
+
+  // Resolve references in config surfaces that flow into the generated config
+  for (let process of processes) {
+    if (process.config) {
+      process.config = substituteProcessReferences(process.config, filenameMap);
+    }
+  }
+  if (config.configs) {
+    config.configs = substituteProcessReferences(config.configs, filenameMap);
+  }
 
   fs.writeFileSync(
     devDependenciesLocation + "/deps.json",
@@ -438,4 +507,5 @@ export default {
   setupDev,
   deepMerge,
   mergeOrchestratorConfigs,
+  substituteProcessReferences,
 };

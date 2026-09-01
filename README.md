@@ -33,6 +33,14 @@ example:
 }
 ```
 
+## Cross-process references
+
+To refer to another process's filename, surround its `name` with percents: `%processName%`.
+
+- Resolves to the bare filename in `devDependenciesLocation` as downloaded/copied, before that process's own source actions run (e.g. `%httpServer%` → `3suite-http-server_v1.0.1_osx-arm`). Add any prefix you need at the reference site.
+- References are resolved in every string of a process's `sourceActions`, its `config`, its `sourceExecOverride`, and the top-level `configs` map.
+- Unknown names are left as-is, so shell env vars like `%USERPROFILE%` inside `command` actions keep working.
+
 ## Dev overrides
 
 If a dev override file exists next to your orchestrator config, orchestrator merges it on top of the base config before resolving dependencies and generating `config.json5`. The name is derived from the base config filename by inserting `.dev` before the extension: the default `orchestrator.json5` picks up **`orchestrator.dev.json5`**, and any custom filename passed to orchestrator gets the same treatment (e.g. `my-config.json5` → `my-config.dev.json5`).
