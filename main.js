@@ -1,6 +1,7 @@
 import * as fleece from "golden-fleece";
 import * as Octokit from "octokit";
 import * as fs from "fs";
+import * as path from "path";
 import { Readable } from "stream";
 import { execSync } from "child_process";
 import AdmZip from "adm-zip";
@@ -342,10 +343,84 @@ function applyPlatformConfigToProcess(process, currentPlatform) {
   return mergedProcess;
 }
 
+function mergeProcessesByName(baseProcesses, devProcesses) {
+  devProcesses.forEach((devProcess, index) => {
+    if (!devProcess || typeof devProcess !== "object" || Array.isArray(devProcess) || !devProcess.name) {
+      throw new Error(
+        `Dev override processes[${index}] must be an object with a "name" field so it can be matched against the base config`
+      );
+    }
+  });
+
+  const mergedProcesses = [];
+  const matchedDevIndices = new Set();
+
+  for (const baseProcess of baseProcesses) {
+    if (!baseProcess || typeof baseProcess !== "object" || !baseProcess.name) {
+      // Base entries without a name can't be matched, so they are left untouched
+      mergedProcesses.push(structuredClone(baseProcess));
+      continue;
+    }
+
+    const devIndex = devProcesses.findIndex(
+      (devProcess, i) => !matchedDevIndices.has(i) && devProcess.name === baseProcess.name
+    );
+
+    if (devIndex !== -1) {
+      matchedDevIndices.add(devIndex);
+      mergedProcesses.push(deepMerge(baseProcess, devProcesses[devIndex]));
+    } else {
+      mergedProcesses.push(structuredClone(baseProcess));
+    }
+  }
+
+  devProcesses.forEach((devProcess, index) => {
+    if (matchedDevIndices.has(index)) {
+      return;
+    }
+    console.warn(
+      `Dev override process "${devProcess.name}" does not match any base process; appending it to the end of processes`
+    );
+    mergedProcesses.push(structuredClone(devProcess));
+  });
+
+  return mergedProcesses;
+}
+
+function mergeOrchestratorConfigs(base, dev) {
+  if (!base) {
+    return structuredClone(dev);
+  }
+  if (!dev) {
+    return structuredClone(base);
+  }
+
+  const merged = deepMerge(base, dev);
+
+  if (Array.isArray(base.processes) || Array.isArray(dev.processes)) {
+    merged.processes = mergeProcessesByName(base.processes || [], dev.processes || []);
+  }
+
+  return merged;
+}
+
+function getDevFilepath(filepath) {
+  const parsed = path.parse(filepath);
+  return path.join(parsed.dir || ".", `${parsed.name}.dev${parsed.ext}`);
+}
+
 async function setupDev(filepath = "orchestrator.json5") {
   //read config.json5
   let orchestratorConfigText = fs.readFileSync(filepath, "utf8");
   let orchestratorConfig = await fleece.evaluate(orchestratorConfigText);
+
+  // Apply a dev override file (e.g. orchestrator.dev.json5) if one exists next to the base config
+  const devFilepath = getDevFilepath(filepath);
+  if (fs.existsSync(devFilepath)) {
+    const devConfig = await fleece.evaluate(fs.readFileSync(devFilepath, "utf8"));
+    orchestratorConfig = mergeOrchestratorConfigs(orchestratorConfig, devConfig);
+    console.log(`Applying dev override: ${devFilepath}`);
+  }
 
   let processes = await getDependencies(orchestratorConfig);
 
@@ -364,4 +439,6 @@ async function setupDev(filepath = "orchestrator.json5") {
 
 export default {
   setupDev,
+  deepMerge,
+  mergeOrchestratorConfigs,
 };
