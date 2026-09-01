@@ -345,9 +345,9 @@ function applyPlatformConfigToProcess(process, currentPlatform) {
 
 function mergeProcessesByName(baseProcesses, devProcesses) {
   devProcesses.forEach((devProcess, index) => {
-    if (!devProcess || typeof devProcess !== "object" || Array.isArray(devProcess) || !devProcess.name) {
+    if (!devProcess || typeof devProcess !== "object" || Array.isArray(devProcess)) {
       throw new Error(
-        `Dev override processes[${index}] must be an object with a "name" field so it can be matched against the base config`
+        `Dev override processes[${index}] must be an object.`
       );
     }
   });
@@ -378,9 +378,6 @@ function mergeProcessesByName(baseProcesses, devProcesses) {
     if (matchedDevIndices.has(index)) {
       return;
     }
-    console.warn(
-      `Dev override process "${devProcess.name}" does not match any base process; appending it to the end of processes`
-    );
     mergedProcesses.push(structuredClone(devProcess));
   });
 

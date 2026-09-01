@@ -1,0 +1,48 @@
+// Dev override for orchestrator.json5 — see README.md ("Dev overrides").
+//
+// Values here are merged on top of the base config before dependencies are
+// resolved and config.json5 is generated: objects merge by key, `processes`
+// entries are matched by `name`, arrays are replaced wholesale, and keys
+// cannot be removed. Uncomment the examples below to try them out.
+//
+// Note: this file must contain at least one value — the empty skeleton below
+// (no entries uncommented) is a valid "do nothing" override.
+
+{
+  // Override a top-level value. Caution: moving devDependenciesLocation
+  // changes where deps.json and downloads live, so everything re-downloads.
+  // devDependenciesLocation: "orchestrator-deps-dev",
+
+  processes: [
+    // Override fields on an existing process (matched by name).
+    // Only the fields you list change; the rest are kept from the base config.
+    // {
+    //   name: "httpServer",
+    //   config: { port: 4005 },
+    // },
+
+    // Arrays are replaced wholesale — an empty array clears the field.
+    // {
+    //   name: "browser",
+    //   sourceActions: [],
+    // },
+
+    // A name that matches no base process is appended to the end of
+    // processes as a new process (with a console warning).
+    // {
+    //   name: "local-tool",
+    //   sourceType: "local",
+    //   localPath: "./local-tool",
+    //   sourceFilePattern: "local-tool*",
+    //   sourceActions: [{ type: "chmod" }],
+    // },
+  ],
+
+  configs: {
+    // Merges by key on top of the base configs.
+    // browser: {
+    //   windowWidth: 1024,
+    //   windowHeight: 768,
+    // },
+  },
+}

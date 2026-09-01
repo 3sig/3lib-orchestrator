@@ -1,3 +1,7 @@
+// Dev overrides: keep local-only changes in orchestrator.dev.json5 next to
+// this file instead of editing this one. It is merged on top of this config
+// (processes matched by name) on every setupDev run. See the examples in
+// orchestrator.dev.json5 and README.md ("Dev overrides").
 {
   devDependenciesLocation: "orchestrator-deps",
   processes: [
