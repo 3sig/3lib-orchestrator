@@ -91,6 +91,29 @@ async function processSourceActions(sourceActions, filename, devDependenciesLoca
   }
 }
 
+// Runs before the source file is matched, so the file does not exist yet and
+// only `command` actions are supported (unzip/chmod/move have no matched
+// file to act on).
+async function processSourceSetupActions(sourceSetupActions, process, devDependenciesLocation) {
+  if (!sourceSetupActions || sourceSetupActions.length === 0) {
+    return;
+  }
+
+  for (let setupAction of sourceSetupActions) {
+    if (setupAction.type != "command") {
+      throw new Error(
+        `sourceSetupActions only supports "command" actions, got "${setupAction.type}" (the source file has not been matched yet)`
+      );
+    }
+    if (!setupAction.command) {
+      throw new Error("command is required for command action");
+    }
+    const cwd = process.localPath || devDependenciesLocation;
+    console.log("Running setup command:", setupAction.command, "in", cwd);
+    execSync(setupAction.command, { cwd, stdio: "inherit" });
+  }
+}
+
 function setProcessExec(process, dependencyKey, existingDependencies) {
   process.exec = process.sourceExecOverride || "./" + existingDependencies[dependencyKey].filename;
 }
@@ -114,6 +137,7 @@ async function fetchGitHubBinary(process, existingDependencies, currentPlatform,
     };
   }
 
+  await processSourceSetupActions(process.sourceSetupActions, process, devDependenciesLocation);
   let filename = await getPlatformBinary(latestRelease, currentPlatform, devDependenciesLocation, process);
   existingDependencies[process.source] = {
     url: latestRelease.url,
@@ -132,6 +156,8 @@ async function fetchLocalBinary(process, existingDependencies, currentPlatform, 
   if (!fs.existsSync(localPath)) {
     throw new Error(`Local path does not exist: ${localPath}`);
   }
+
+  await processSourceSetupActions(process.sourceSetupActions, process, devDependenciesLocation);
 
   let filename = await getLocalPlatformBinary(localPath, currentPlatform, process, devDependenciesLocation);
   existingDependencies[localPath] = {

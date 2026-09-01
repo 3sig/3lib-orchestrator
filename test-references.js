@@ -1,6 +1,6 @@
-// Tests for cross-process %processName% references.
+// Tests for cross-process %processName% references and sourceSetupActions.
 //
-// The integration part uses only local sources (no GitHub downloads); the
+// The integration parts use only local sources (no GitHub downloads); the
 // only network call is the 3suite-orchestrator release check that every
 // setupDev run performs, and even that is satisfied from a pre-seeded
 // deps.json so the large orchestrator binary is never downloaded.
@@ -92,20 +92,14 @@ assertEqual(
   "recursive object/array substitution"
 );
 
-// --- integration: cross-process references through setupDev ---
-async function integrationTest() {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "3lib-orchestrator-refs-"));
-  const sourcesADir = path.join(tmpRoot, "sources-a");
-  const sourcesBDir = path.join(tmpRoot, "sources-b");
+// --- shared integration sandbox ---
+// Creates a tmp root with a deps dir whose deps.json is seeded with the
+// current 3suite-orchestrator release, so setupDev skips the large
+// orchestrator binary download.
+async function createSandbox(label) {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), `3lib-orchestrator-${label}-`));
   const depsDir = path.join(tmpRoot, "deps");
 
-  fs.mkdirSync(sourcesADir);
-  fs.mkdirSync(sourcesBDir);
-  fs.writeFileSync(path.join(sourcesADir, "a-tool-bin"), "#!/bin/sh\necho a\n");
-  fs.writeFileSync(path.join(sourcesBDir, "b-tool-bin"), "#!/bin/sh\necho b\n");
-
-  // Seed the 3suite-orchestrator bootstrap entry so setupDev skips the
-  // large orchestrator binary download.
   const octokit = new Octokit.Octokit();
   const { data: releases } = await octokit.request("GET /repos/3sig/3suite-orchestrator/releases");
   const latestRelease = releases.sort((a, b) => b.published_at - a.published_at)[0];
@@ -117,6 +111,24 @@ async function integrationTest() {
       "3sig/3suite-orchestrator": { url: latestRelease.url, filename: "orchestrator-stub" },
     })
   );
+
+  return {
+    tmpRoot,
+    depsDir,
+    cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }),
+  };
+}
+
+// --- integration: cross-process references through setupDev ---
+async function integrationTest() {
+  const { tmpRoot, depsDir, cleanup } = await createSandbox("refs");
+  const sourcesADir = path.join(tmpRoot, "sources-a");
+  const sourcesBDir = path.join(tmpRoot, "sources-b");
+
+  fs.mkdirSync(sourcesADir);
+  fs.mkdirSync(sourcesBDir);
+  fs.writeFileSync(path.join(sourcesADir, "a-tool-bin"), "#!/bin/sh\necho a\n");
+  fs.writeFileSync(path.join(sourcesBDir, "b-tool-bin"), "#!/bin/sh\necho b\n");
 
   const configPath = path.join(tmpRoot, "orchestrator.json5");
   fs.writeFileSync(
@@ -176,11 +188,122 @@ async function integrationTest() {
     "input config keeps raw references"
   );
 
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  cleanup();
+}
+
+// --- integration: sourceSetupActions (pre-match setup) ---
+async function setupActionsTest() {
+  const { tmpRoot, depsDir, cleanup } = await createSandbox("setup");
+  try {
+    const setupActions = [{ type: "command", command: "cp a-tool-src a-tool-bin" }];
+
+    // Run 1: the setup command builds the file the pattern then matches.
+    const sources1Dir = path.join(tmpRoot, "run-1-sources");
+    fs.mkdirSync(sources1Dir);
+    fs.writeFileSync(path.join(sources1Dir, "a-tool-src"), "built from a-tool-src\n");
+    const config1Path = path.join(tmpRoot, "orchestrator-run-1.json5");
+    fs.writeFileSync(
+      config1Path,
+      `{
+        devDependenciesLocation: ${JSON.stringify(depsDir)},
+        processes: [
+          {
+            name: "a-tool",
+            sourceType: "local",
+            localPath: ${JSON.stringify(sources1Dir)},
+            sourceFileType: "pattern-match",
+            sourceFilePattern: "a-tool-bin",
+            sourceSetupActions: ${JSON.stringify(setupActions)},
+          },
+        ],
+      }`
+    );
+
+    await setupDev(config1Path);
+
+    assertEqual(
+      fs.readFileSync(path.join(depsDir, "a-tool-bin"), "utf8"),
+      "built from a-tool-src\n",
+      "setup: setup command ran before match, file copied to deps"
+    );
+    const generated1 = await fleece.evaluate(fs.readFileSync(path.join(depsDir, "config.json5"), "utf8"));
+    const aTool1 = generated1.processes.find(p => p.name === "a-tool");
+    assertEqual(aTool1.exec, "./a-tool-bin", "setup: exec resolved");
+    assertEqual(aTool1.sourceSetupActions, setupActions, "setup: sourceSetupActions kept raw in generated config");
+
+    // Run 2: without sourceSetupActions the match finds nothing, proving
+    // the setup action is what makes the file matchable.
+    const sources2Dir = path.join(tmpRoot, "run-2-sources");
+    fs.mkdirSync(sources2Dir);
+    fs.writeFileSync(path.join(sources2Dir, "a-tool-src"), "built from a-tool-src\n");
+    const config2Path = path.join(tmpRoot, "orchestrator-run-2.json5");
+    fs.writeFileSync(
+      config2Path,
+      `{
+        devDependenciesLocation: ${JSON.stringify(depsDir)},
+        processes: [
+          {
+            name: "a-tool",
+            sourceType: "local",
+            localPath: ${JSON.stringify(sources2Dir)},
+            sourceFileType: "pattern-match",
+            sourceFilePattern: "a-tool-bin",
+          },
+        ],
+      }`
+    );
+
+    let run2Error = null;
+    try {
+      await setupDev(config2Path);
+    } catch (err) {
+      run2Error = err;
+    }
+    assert(
+      run2Error && /No matching file found/.test(run2Error.message),
+      "setup: match fails when setup actions never ran"
+    );
+
+    // Run 3: non-command setup actions are rejected.
+    const sources3Dir = path.join(tmpRoot, "run-3-sources");
+    fs.mkdirSync(sources3Dir);
+    fs.writeFileSync(path.join(sources3Dir, "a-tool-src"), "built from a-tool-src\n");
+    const config3Path = path.join(tmpRoot, "orchestrator-run-3.json5");
+    fs.writeFileSync(
+      config3Path,
+      `{
+        devDependenciesLocation: ${JSON.stringify(depsDir)},
+        processes: [
+          {
+            name: "a-tool",
+            sourceType: "local",
+            localPath: ${JSON.stringify(sources3Dir)},
+            sourceFileType: "pattern-match",
+            sourceFilePattern: "a-tool-bin",
+            sourceSetupActions: [{ type: "unzip" }],
+          },
+        ],
+      }`
+    );
+
+    let run3Error = null;
+    try {
+      await setupDev(config3Path);
+    } catch (err) {
+      run3Error = err;
+    }
+    assert(
+      run3Error && /only supports "command"/.test(run3Error.message),
+      "setup: non-command setup action rejected"
+    );
+  } finally {
+    cleanup();
+  }
 }
 
 async function main() {
   await integrationTest();
+  await setupActionsTest();
 
   if (failures > 0) {
     console.error(`\n${failures} test(s) failed`);

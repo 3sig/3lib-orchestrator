@@ -33,6 +33,15 @@ example:
 }
 ```
 
+### sourceSetupActions (pre-match setup)
+
+Processes can also declare a `sourceSetupActions` array, which runs **before** the source file is matched by the platform binary / `sourceFilePattern` logic. This is for preparing the source, e.g. building a binary into `localPath` so the match step can find it.
+
+- Only `command` actions are supported — the source file has not been matched yet, so `unzip`/`chmod`/`move` have no file to act on. Any other type throws.
+- `command` runs in the process's `localPath` if set, otherwise in `devDependenciesLocation` — same as `command` in `sourceActions`.
+- Timing follows the fetch step: `local` sources run it on every `setupDev()` call; `github` sources only when a new release is downloaded (skipped when up to date, like everything else in that step).
+- `%processName%` references are **not** resolved in `sourceSetupActions` — filenames are only known after matching. Strings pass through raw.
+
 ## Cross-process references
 
 To refer to another process's filename, surround its `name` with percents: `%processName%`.
