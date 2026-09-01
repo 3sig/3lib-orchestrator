@@ -2,6 +2,7 @@ import * as fleece from "golden-fleece";
 import * as Octokit from "octokit";
 import * as fs from "fs";
 import { Readable } from "stream";
+import { execSync } from "child_process";
 import AdmZip from "adm-zip";
 
 // Track ongoing downloads to prevent race conditions
@@ -38,7 +39,7 @@ async function getDependency(config, process, existingDependencies) {
   }
 }
 
-async function processSourceActions(sourceActions, filename, devDependenciesLocation) {
+async function processSourceActions(sourceActions, filename, devDependenciesLocation, process) {
   if (!sourceActions || sourceActions.length === 0) {
     return;
   }
@@ -71,6 +72,13 @@ async function processSourceActions(sourceActions, filename, devDependenciesLoca
       console.log("Moving", sourceFile, "to", targetFile);
       fs.renameSync(sourceFile, targetFile);
       console.log("Moved to:", targetFile);
+    } else if (sourceAction.type == "command") {
+      if (!sourceAction.command) {
+        throw new Error("command is required for command action");
+      }
+      const cwd = process.localPath || devDependenciesLocation;
+      console.log("Running command:", sourceAction.command, "in", cwd);
+      execSync(sourceAction.command, { cwd, stdio: "inherit" });
     }
   }
 }
@@ -95,7 +103,7 @@ async function getDependencyFromGitHub(process, existingDependencies, currentPla
   }
   else {
     let filename = await getPlatformBinary(latestRelease, currentPlatform, devDependenciesLocation, process);
-    await processSourceActions(process.sourceActions, filename, devDependenciesLocation);
+    await processSourceActions(process.sourceActions, filename, devDependenciesLocation, process);
     existingDependencies[process.source] = {
       url: latestRelease.url,
       filename: filename,
@@ -117,7 +125,7 @@ async function getDependencyFromLocal(process, existingDependencies, currentPlat
   }
 
   let filename = await getLocalPlatformBinary(localPath, currentPlatform, process, devDependenciesLocation);
-  await processSourceActions(process.sourceActions, filename, devDependenciesLocation);
+  await processSourceActions(process.sourceActions, filename, devDependenciesLocation, process);
 
   existingDependencies[localPath] = {
     path: localPath,

@@ -91,6 +91,29 @@
     //   sourceActions: [{ type: "chmod" }],
     //   sourceExclude: true,  // This process won't be included in config.json5
     // },
+
+    // Example of using a command action with a github source.
+    // The command runs in devDependenciesLocation (github sources have no localPath):
+    // {
+    //   name: "setup-tool",
+    //   source: "org/setup-tool",
+    //   sourceActions: [
+    //     { type: "command", command: "bun install" }
+    //   ],
+    // },
+
+    // Example of using a command action with a local source.
+    // The command runs in the process's localPath:
+    // {
+    //   name: "local-setup-tool",
+    //   sourceType: "local",
+    //   localPath: "/path/to/local/folder",
+    //   sourceFileType: "pattern-match",
+    //   sourceFilePattern: "tool-*",
+    //   sourceActions: [
+    //     { type: "command", command: "bun install" }
+    //   ],
+    // },
   ],
 
   configs: {
